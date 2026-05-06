@@ -1,0 +1,242 @@
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+import requests
+import re
+from datetime import datetime
+
+st.set_page_config(page_title="家庭管理", page_icon="🏠", layout="centered")
+
+# ============================================================
+# Google Sheets接続
+# ============================================================
+@st.cache_resource
+def get_sheets_client():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    return gspread.authorize(creds)
+
+def get_sheet(name):
+    client = get_sheets_client()
+    ss = client.open_by_key(st.secrets["SPREADSHEET_ID"])
+    return ss.worksheet(name)
+
+# ============================================================
+# Gemini API
+# ============================================================
+def call_gemini(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={st.secrets['GEMINI_API_KEY']}"
+    try:
+        res = requests.post(url, json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        }, timeout=30)
+        data = res.json()
+        if data.get("candidates"):
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return f"エラーが発生しました: {e}"
+    return "申し訳ありません。もう一度お試しください。"
+
+# ============================================================
+# 献立提案
+# ============================================================
+def page_meal():
+    st.header("🍚 献立提案")
+    st.caption("和食・時短・栄養バランス重視で提案します")
+
+    if st.button("今日の献立を提案する", use_container_width=True, type="primary"):
+        with st.spinner("献立を考えています..."):
+            result = call_gemini("""あなたは家庭料理の献立アドバイザーです。
+以下の条件で今日の夕食献立を提案してください。
+
+条件：
+- 和食中心
+- 調理時間30分以内の時短レシピ
+- 栄養バランスが良く健康的
+- レバーは使用しない
+- 家族構成：夫婦＋2歳の男の子
+
+以下の形式で回答してください：
+
+【今日の献立提案】
+🍚 主食：
+🍖 主菜：（調理時間：〇分）
+🥗 副菜：
+🍵 汁物：
+
+💡 時短ポイント：（1〜2文）
+🌿 栄養ポイント：（1〜2文）""")
+            st.success(result)
+
+# ============================================================
+# 買い物リスト
+# ============================================================
+def page_shopping():
+    st.header("🛒 買い物リスト")
+
+    sheet = get_sheet("買い物リスト")
+    data = sheet.get_all_values()
+    active_items = [(i + 2, row[0]) for i, row in enumerate(data[1:])
+                    if len(row) >= 3 and row[0] and row[2] not in ("TRUE", True)]
+
+    with st.form("add_item", clear_on_submit=True):
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            new_item = st.text_input("商品名", placeholder="例：牛乳", label_visibility="collapsed")
+        with col2:
+            submitted = st.form_submit_button("追加", use_container_width=True)
+        if submitted and new_item.strip():
+            sheet.append_row([new_item.strip(), "", "FALSE", datetime.now().isoformat()])
+            st.rerun()
+
+    st.divider()
+
+    if not active_items:
+        st.info("買い物リストは空です")
+    else:
+        for row_num, name in active_items:
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.write(f"• {name}")
+            with col2:
+                if st.button("✓", key=f"del_{row_num}", use_container_width=True):
+                    sheet.update_cell(row_num, 3, "TRUE")
+                    st.rerun()
+
+        st.divider()
+        if st.button("全削除", use_container_width=True):
+            for row_num, _ in active_items:
+                sheet.update_cell(row_num, 3, "TRUE")
+            st.rerun()
+
+# ============================================================
+# お出かけ提案
+# ============================================================
+def page_outing():
+    st.header("🗺 お出かけ提案")
+    st.caption("毎週月曜朝にLINEへ自動通知されます")
+
+    if st.button("今すぐ提案を見る", use_container_width=True, type="primary"):
+        with st.spinner("お出かけ先を検索中...（20〜30秒かかります）"):
+            url_sheet = get_sheet("URLリスト")
+            url_data = url_sheet.get_all_values()
+            urls = [(row[0], row[1]) for row in url_data[1:]
+                    if len(row) >= 3 and row[0] and row[2] not in ("FALSE", False)]
+
+            url_content = ""
+            for name, url in urls:
+                try:
+                    res = requests.get(url, timeout=10,
+                                       headers={"User-Agent": "Mozilla/5.0"})
+                    text = re.sub(r'<[^>]+>', ' ', res.text)
+                    text = re.sub(r'\s+', ' ', text).strip()[:1500]
+                    url_content += f"\n【{name}の情報】\n{text}\n"
+                except Exception:
+                    pass
+
+            today = datetime.now().strftime("%Y年%m月%d日")
+            result = call_gemini(f"""あなたは子育て家族のお出かけアドバイザーです。
+{today}時点で、以下の家族に適したお出かけ先を3つ提案してください。
+
+家族構成：夫婦＋2歳の男の子
+対象エリア：東京都区外・埼玉県・神奈川県（相模原市・横浜市）
+条件：2歳児が楽しめる・体を動かせる・無料または低コスト優先
+
+{f'【登録サイトからの情報】{url_content}' if url_content else ''}
+
+以下の形式で提案してください：
+
+【今週のお出かけ候補🗺】
+
+① 【場所名】
+📍 エリア：
+🎯 2歳児おすすめ理由：
+💰 費用目安：
+⏰ 所要時間目安：
+
+② 【場所名】
+（同上）
+
+③ 【場所名】
+（同上）
+
+✨ 今週のイチオシ：""")
+            st.success(result)
+
+# ============================================================
+# 育児・家事相談
+# ============================================================
+def page_advice():
+    st.header("💬 育児・家事相談")
+
+    question = st.text_area("質問を入力してください",
+                             placeholder="例：2歳の子どもが野菜を食べてくれません。どうすれば？",
+                             height=120)
+
+    if st.button("相談する", use_container_width=True, type="primary"):
+        if question.strip():
+            with st.spinner("回答を考えています..."):
+                result = call_gemini(f"""あなたは2歳の男の子を持つ夫婦をサポートするAIアシスタントです。
+育児・家事・料理・子育てに関する質問に親切丁寧に答えてください。
+回答は簡潔にまとめ、実践しやすいアドバイスを心がけてください。
+
+家族構成：夫婦＋2歳の男の子
+
+質問：{question}""")
+                st.success(result)
+        else:
+            st.warning("質問を入力してください")
+
+# ============================================================
+# URL管理
+# ============================================================
+def page_urls():
+    st.header("🌐 イベントサイト管理")
+    st.caption("お出かけ提案の参照先サイトを管理します")
+
+    sheet = get_sheet("URLリスト")
+    data = sheet.get_all_values()
+    active_urls = [(i + 2, row[0], row[1]) for i, row in enumerate(data[1:])
+                   if len(row) >= 3 and row[0] and row[2] not in ("FALSE", False)]
+
+    with st.form("add_url", clear_on_submit=True):
+        new_url = st.text_input("URLを入力", placeholder="https://...")
+        submitted = st.form_submit_button("追加", use_container_width=True)
+        if submitted and new_url.strip():
+            match = re.search(r'https?://([^/]+)', new_url)
+            name = match.group(1) if match else new_url
+            sheet.append_row([name, new_url.strip(), "TRUE", datetime.now().isoformat()])
+            st.rerun()
+
+    st.divider()
+
+    if not active_urls:
+        st.info("URLが登録されていません")
+    else:
+        for row_num, name, url in active_urls:
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.write(f"📎 {name}")
+            with col2:
+                if st.button("削除", key=f"url_{row_num}", use_container_width=True):
+                    sheet.update_cell(row_num, 3, "FALSE")
+                    st.rerun()
+
+# ============================================================
+# ナビゲーション
+# ============================================================
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🍚 献立", "🛒 買い物", "🗺 お出かけ", "💬 相談", "🌐 URL"])
+
+with tab1:
+    page_meal()
+with tab2:
+    page_shopping()
+with tab3:
+    page_outing()
+with tab4:
+    page_advice()
+with tab5:
+    page_urls()
