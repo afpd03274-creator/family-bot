@@ -12,7 +12,7 @@ st.set_page_config(page_title="家庭管理", page_icon="🏠", layout="centered
 # ============================================================
 # Google Sheets接続
 # ============================================================
-@st.cache_resource
+@st.cache_resource(ttl=600)
 def get_sheets_client():
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
@@ -21,9 +21,13 @@ def get_sheets_client():
     return gspread.authorize(creds)
 
 def get_sheet(name):
-    client = get_sheets_client()
-    ss = client.open_by_key(st.secrets["SPREADSHEET_ID"])
-    return ss.worksheet(name)
+    try:
+        client = get_sheets_client()
+        ss = client.open_by_key(st.secrets["SPREADSHEET_ID"])
+        return ss.worksheet(name)
+    except Exception as e:
+        st.error(f"Google Sheetsへの接続に失敗しました。しばらく待ってから再読み込みしてください。（{type(e).__name__}）")
+        st.stop()
 
 # ============================================================
 # Groq API
@@ -315,7 +319,7 @@ def page_outing():
                             count = date_counts.get(date_key, 0)
                             if count > 0:
                                 is_sel = selected_day == date_key
-                                btn_label = f"{'✓' if is_sel else ''}{day}({count})"
+                                btn_label = f"{'✓' if is_sel else ''}{day}"
                                 if wcols[i].button(
                                     btn_label,
                                     key=f"cal_{date_key}",
