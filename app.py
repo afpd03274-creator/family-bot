@@ -195,7 +195,7 @@ def _fetch_url_text(url, now, req_headers):
     html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
     html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
     text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'\s+', ' ', text).strip()[:1500]
+    text = re.sub(r'\s+', ' ', text).strip()[:4000]
     return text, fetch_url, fallback
 
 
@@ -250,11 +250,11 @@ def page_outing():
                         raw = call_gemini(f"""あなたは子育て家族のイベント情報アドバイザーです。
 以下の【登録サイトからの情報】から確認できるイベントをすべて抽出し、JSON配列として返してください。
 
-【ルール】
+【重要なルール】
 - 具体的な「開催イベント」のみ（場所紹介・施設案内は除外）
 - イベント名と開催日が明確なものだけを含める
 - 登録サイトに掲載されていないイベントは追加しない
-- 日付はYYYY-MM-DD形式（年不明なら{now.year}を使用）
+- 日付はYYYY-MM-DD形式（年が不明なら{now.year}を使用）
 - JSON配列のみを返す（前置き・説明文は不要）
 
 【今日の日付】{today_str}
@@ -262,8 +262,19 @@ def page_outing():
 【登録サイトからの情報】
 {url_content}
 
-[{{"name":"イベント名","date":"YYYY-MM-DD","date_display":"〇月〇日（曜）","location":"場所","age":"対象年齢","fee":"参加費","description":"内容1〜2文","url":"情報元URL"}}]""")
-
+以下のJSON形式で返してください：
+[
+  {{
+    "name": "イベント名",
+    "date": "YYYY-MM-DD",
+    "date_display": "〇月〇日（曜日）",
+    "location": "開催場所・市区",
+    "age": "対象年齢",
+    "fee": "参加費",
+    "description": "内容（1〜2文）",
+    "url": "情報元URL"
+  }}
+]""")
                         events = []
                         try:
                             m = re.search(r'\[[\s\S]*\]', raw)
@@ -271,17 +282,6 @@ def page_outing():
                                 events = json.loads(m.group())
                         except Exception:
                             pass
-
-                        # date_displayから複数日を抽出してall_datesを生成
-                        for ev in events:
-                            primary = ev.get('date', '')
-                            display = ev.get('date_display', '')
-                            found = []
-                            for mo, dy in re.findall(r'(\d{1,2})月(\d{1,2})日', display):
-                                yr = now.year if int(mo) >= now.month else now.year + 1
-                                found.append(f"{yr}-{int(mo):02d}-{int(dy):02d}")
-                            ev['all_dates'] = list(dict.fromkeys(found)) if found else ([primary] if primary else [])
-
                         events.sort(key=lambda e: e.get('date', ''))
                         st.session_state.outing_events = events
                         if not events:
@@ -295,10 +295,10 @@ def page_outing():
 
         if events:
             if selected_day:
-                filtered = [e for e in events if selected_day in e.get('all_dates', [e.get('date', '')])]
+                filtered = [e for e in events if e.get('date', '') == selected_day]
                 try:
                     d = datetime.strptime(selected_day, '%Y-%m-%d')
-                    label = f"{d.month}月{d.day}日"
+                    label = d.strftime(f"{d.month}月{d.day}日")
                 except Exception:
                     label = selected_day
                 st.markdown(f"**{label}のイベント（{len(filtered)}件）**")
@@ -330,12 +330,11 @@ def page_outing():
         if events:
             now = datetime.now()
 
-            # イベントがある日付のセット（複数日対応）
-            event_dates = set()
+            date_counts = {}
             for e in events:
-                for d_str in e.get('all_dates', [e.get('date', '')]):
-                    if d_str:
-                        event_dates.add(d_str)
+                d_str = e.get('date', '')
+                if d_str:
+                    date_counts[d_str] = date_counts.get(d_str, 0) + 1
 
             selected_day = st.session_state.outing_day
 
@@ -364,7 +363,8 @@ def page_outing():
                             wcols[i].write("")
                         else:
                             date_key = f"{yr}-{mo:02d}-{day:02d}"
-                            if date_key in event_dates:
+                            count = date_counts.get(date_key, 0)
+                            if count > 0:
                                 is_sel = selected_day == date_key
                                 if wcols[i].button(
                                     f"{'✓' if is_sel else ''}{day}",
