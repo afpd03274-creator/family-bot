@@ -3,6 +3,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import requests
 import re
+import json
+import calendar as cal_module
 from datetime import datetime
 
 st.set_page_config(page_title="家庭管理", page_icon="🏠", layout="centered")
@@ -124,101 +126,195 @@ def page_shopping():
 # ============================================================
 # お出かけ提案
 # ============================================================
+def _fetch_url_text(url, now, req_headers):
+    fetch_url = re.sub(r'/\d{4}/\d{2}/', f'/{now.year}/{now.month:02d}/', url)
+    res = requests.get(fetch_url, timeout=10, headers=req_headers)
+    fallback = False
+    if res.status_code == 403:
+        m = re.match(r'(https?://[^/]+)', fetch_url)
+        if m:
+            fetch_url = m.group(1) + "/"
+            res = requests.get(fetch_url, timeout=10, headers=req_headers)
+            fallback = True
+    if res.status_code != 200:
+        raise Exception(f"HTTP {res.status_code}")
+    html = res.content.decode('utf-8', errors='replace')
+    html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
+    text = re.sub(r'<[^>]+>', ' ', html)
+    text = re.sub(r'\s+', ' ', text).strip()[:4000]
+    return text, fetch_url, fallback
+
+
 def page_outing():
     st.header("🗺 お出かけ提案")
     st.caption("毎週月曜朝にLINEへ自動通知されます")
 
-    if st.button("今すぐ提案を見る", use_container_width=True, type="primary"):
-        with st.spinner("お出かけ先を検索中...（20〜30秒かかります）"):
-            url_sheet = get_sheet("URLリスト")
-            url_data = url_sheet.get_all_values()
-            urls = [(row[0], row[1]) for row in url_data[1:]
-                    if len(row) >= 3 and row[0] and row[2] not in ("FALSE", False)]
+    for key, val in [('outing_events', []), ('outing_day', None), ('outing_notices', [])]:
+        if key not in st.session_state:
+            st.session_state[key] = val
 
-            if not urls:
-                st.warning("URLが登録されていません。「🌐 URL」タブからイベントサイトを登録してください。")
-                return
+    col_main, col_cal = st.columns([3, 2])
 
-            url_content = ""
-            failed = []
-            fallback_used = []
-            now = datetime.now()
-            url_map = {}
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "ja,en-US;q=0.7,en;q=0.3",
-            }
-            for name, url in urls:
-                try:
-                    fetch_url = re.sub(
-                        r'/\d{4}/\d{2}/',
-                        f'/{now.year}/{now.month:02d}/',
-                        url
-                    )
-                    res = requests.get(fetch_url, timeout=10, headers=headers)
-                    # 403の場合はトップページにフォールバック
-                    if res.status_code == 403:
-                        m = re.match(r'(https?://[^/]+)', fetch_url)
-                        if m:
-                            fetch_url = m.group(1) + "/"
-                            res = requests.get(fetch_url, timeout=10, headers=headers)
-                            fallback_used.append(f"{name}（トップページで代替取得）")
-                    if res.status_code != 200:
-                        failed.append(name)
-                        continue
-                    html = res.content.decode('utf-8', errors='replace')
-                    html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
-                    html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
-                    text = re.sub(r'<[^>]+>', ' ', html)
-                    text = re.sub(r'\s+', ' ', text).strip()[:4000]
-                    url_map[name] = fetch_url
-                    url_content += f"\n【サイト名：{name}｜URL：{fetch_url}】\n{text}\n"
-                except Exception:
-                    failed.append(name)
+    with col_main:
+        if st.button("今すぐ提案を見る", use_container_width=True, type="primary"):
+            st.session_state.outing_day = None
+            with st.spinner("お出かけ先を検索中...（20〜30秒かかります）"):
+                url_sheet = get_sheet("URLリスト")
+                url_data = url_sheet.get_all_values()
+                urls = [(row[0], row[1]) for row in url_data[1:]
+                        if len(row) >= 3 and row[0] and row[2] not in ("FALSE", False)]
 
-            if not url_content:
-                st.error("登録されたURLからの情報取得に失敗しました。URLが正しいか確認してください。")
-                return
+                if not urls:
+                    st.warning("URLが登録されていません。「🌐 URL」タブからイベントサイトを登録してください。")
+                else:
+                    req_headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "ja,en-US;q=0.7,en;q=0.3",
+                    }
+                    now = datetime.now()
+                    url_content = ""
+                    failed, fallback_used = [], []
+                    for name, url in urls:
+                        try:
+                            text, fetch_url, fb = _fetch_url_text(url, now, req_headers)
+                            if fb:
+                                fallback_used.append(name)
+                            url_content += f"\n【サイト名：{name}｜URL：{fetch_url}】\n{text}\n"
+                        except Exception:
+                            failed.append(name)
 
-            today = datetime.now().strftime("%Y年%m月%d日")
-            result = call_gemini(f"""あなたは子育て家族のイベント情報アドバイザーです。
-以下の【登録サイトからの情報】を読み込み、確認できるイベントをすべて抽出してリスト化してください。
+                    notices = []
+                    if fallback_used:
+                        notices.append(f"ℹ️ トップページで代替取得: {', '.join(fallback_used)}")
+                    if failed:
+                        notices.append(f"⚠️ 取得できなかったサイト: {', '.join(failed)}")
+                    st.session_state.outing_notices = notices
+
+                    if url_content:
+                        today_str = now.strftime("%Y年%m月%d日")
+                        raw = call_gemini(f"""あなたは子育て家族のイベント情報アドバイザーです。
+以下の【登録サイトからの情報】から確認できるイベントをすべて抽出し、JSON配列として返してください。
 
 【重要なルール】
-- 「場所の紹介」ではなく、具体的な「開催イベント」のみを対象とする
-- イベント名・開催日時が読み取れるものだけを掲載する
-- 登録サイトに掲載されていないイベントは絶対に追加しない
-- 各イベントの📌情報元には必ずMarkdown形式のリンク [サイト名](URL) を記載する
-- イベントが見つからないサイトについては末尾に「情報なし」として記載する
-- 件数制限なし：見つかったイベントをすべて列挙する
+- 具体的な「開催イベント」のみ（場所紹介・施設案内は除外）
+- イベント名と開催日が明確なものだけを含める
+- 登録サイトに掲載されていないイベントは追加しない
+- 日付はYYYY-MM-DD形式（年が不明なら{now.year}を使用）
+- JSON配列のみを返す（前置き・説明文は不要）
 
-【今日の日付】{today}
+【今日の日付】{today_str}
 
 【登録サイトからの情報】
 {url_content}
 
-以下のMarkdown形式で出力してください：
+以下のJSON形式で返してください：
+[
+  {{
+    "name": "イベント名",
+    "date": "YYYY-MM-DD",
+    "date_display": "〇月〇日（曜日）",
+    "location": "開催場所・市区",
+    "age": "対象年齢",
+    "fee": "参加費",
+    "description": "内容（1〜2文）",
+    "url": "情報元URL"
+  }}
+]""")
+                        events = []
+                        try:
+                            m = re.search(r'\[[\s\S]*\]', raw)
+                            if m:
+                                events = json.loads(m.group())
+                        except Exception:
+                            pass
+                        events.sort(key=lambda e: e.get('date', ''))
+                        st.session_state.outing_events = events
+                        if not events:
+                            st.warning("イベント情報を抽出できませんでした。登録サイトに今月のイベント情報があるか確認してください。")
 
-## 📅 今月のイベント一覧
+        for notice in st.session_state.outing_notices:
+            st.caption(notice)
 
-### ① イベント名
-- 📍 開催場所：
-- 📅 開催日時：
-- 👶 対象年齢：
-- 💰 参加費：
-- 📌 情報元：[サイト名](URL)
+        events = st.session_state.outing_events
+        selected_day = st.session_state.outing_day
 
-### ② イベント名
-（同上、見つかったイベントをすべて列挙）
+        if events:
+            if selected_day:
+                filtered = [e for e in events
+                            if e.get('date', '').endswith(f"-{selected_day:02d}")]
+                st.markdown(f"**{selected_day}日のイベント（{len(filtered)}件）**")
+                if st.button("← 全件表示に戻る"):
+                    st.session_state.outing_day = None
+                    st.rerun()
+            else:
+                filtered = events
+                st.markdown(f"**全イベント（{len(filtered)}件）**")
 
----
-情報が取得できなかったサイト：（あれば記載）""")
-            if fallback_used:
-                st.caption(f"ℹ️ カレンダーURLがブロックされたためトップページで代替取得: {', '.join(fallback_used)}")
-            if failed:
-                st.caption(f"⚠️ 取得できなかったサイト: {', '.join(failed)}")
-            st.markdown(result)
+            for event in filtered:
+                with st.expander(
+                    f"📅 {event.get('date_display', '')}　{event.get('name', '')}",
+                    expanded=True
+                ):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.write(f"📍 {event.get('location', '-')}")
+                        st.write(f"👶 {event.get('age', '-')}")
+                    with c2:
+                        st.write(f"💰 {event.get('fee', '-')}")
+                        if event.get('url'):
+                            st.markdown(f"🔗 [詳細はこちら]({event['url']})")
+                    if event.get('description'):
+                        st.write(event['description'])
+
+    with col_cal:
+        events = st.session_state.outing_events
+        if events:
+            now = datetime.now()
+            st.markdown(f"**📅 {now.year}年{now.month}月**")
+
+            day_counts = {}
+            for e in events:
+                try:
+                    d = datetime.strptime(e.get('date', ''), '%Y-%m-%d')
+                    if d.year == now.year and d.month == now.month:
+                        day_counts[d.day] = day_counts.get(d.day, 0) + 1
+                except Exception:
+                    pass
+
+            for label in ['月', '火', '水', '木', '金', '土', '日']:
+                pass
+            hcols = st.columns(7)
+            for i, label in enumerate(['月', '火', '水', '木', '金', '土', '日']):
+                hcols[i].markdown(
+                    f"<div style='text-align:center;font-weight:bold;font-size:12px'>{label}</div>",
+                    unsafe_allow_html=True
+                )
+
+            selected_day = st.session_state.outing_day
+            for week in cal_module.monthcalendar(now.year, now.month):
+                wcols = st.columns(7)
+                for i, day in enumerate(week):
+                    if day == 0:
+                        wcols[i].write("")
+                    elif day_counts.get(day, 0) > 0:
+                        count = day_counts[day]
+                        is_sel = selected_day == day
+                        label = f"{'✓' if is_sel else ''}{day}\n({count})"
+                        if wcols[i].button(
+                            label,
+                            key=f"cal_{day}",
+                            use_container_width=True,
+                            type="primary" if is_sel else "secondary"
+                        ):
+                            st.session_state.outing_day = None if is_sel else day
+                            st.rerun()
+                    else:
+                        wcols[i].markdown(
+                            f"<div style='text-align:center;color:#999;font-size:13px;padding:4px'>{day}</div>",
+                            unsafe_allow_html=True
+                        )
 
 # ============================================================
 # 育児・家事相談
