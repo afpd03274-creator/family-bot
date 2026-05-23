@@ -141,8 +141,14 @@ def page_outing():
 
             url_content = ""
             failed = []
+            fallback_used = []
             now = datetime.now()
             url_map = {}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ja,en-US;q=0.7,en;q=0.3",
+            }
             for name, url in urls:
                 try:
                     fetch_url = re.sub(
@@ -150,8 +156,17 @@ def page_outing():
                         f'/{now.year}/{now.month:02d}/',
                         url
                     )
-                    res = requests.get(fetch_url, timeout=10,
-                                       headers={"User-Agent": "Mozilla/5.0"})
+                    res = requests.get(fetch_url, timeout=10, headers=headers)
+                    # 403の場合はトップページにフォールバック
+                    if res.status_code == 403:
+                        m = re.match(r'(https?://[^/]+)', fetch_url)
+                        if m:
+                            fetch_url = m.group(1) + "/"
+                            res = requests.get(fetch_url, timeout=10, headers=headers)
+                            fallback_used.append(f"{name}（トップページで代替取得）")
+                    if res.status_code != 200:
+                        failed.append(name)
+                        continue
                     html = res.content.decode('utf-8', errors='replace')
                     html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
                     html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
@@ -199,6 +214,8 @@ def page_outing():
 
 ---
 情報が取得できなかったサイト：（あれば記載）""")
+            if fallback_used:
+                st.caption(f"ℹ️ カレンダーURLがブロックされたためトップページで代替取得: {', '.join(fallback_used)}")
             if failed:
                 st.caption(f"⚠️ 取得できなかったサイト: {', '.join(failed)}")
             st.markdown(result)
