@@ -37,7 +37,7 @@ def call_gemini(prompt):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1024,
+                "max_tokens": 4096,
                 "temperature": 0.7
             },
             timeout=30
@@ -142,9 +142,9 @@ def page_outing():
             url_content = ""
             failed = []
             now = datetime.now()
+            url_map = {}
             for name, url in urls:
                 try:
-                    # 年月パターン（/YYYY/MM/）を今月に自動置換
                     fetch_url = re.sub(
                         r'/\d{4}/\d{2}/',
                         f'/{now.year}/{now.month:02d}/',
@@ -157,7 +157,8 @@ def page_outing():
                     html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
                     text = re.sub(r'<[^>]+>', ' ', html)
                     text = re.sub(r'\s+', ' ', text).strip()[:4000]
-                    url_content += f"\n【{name}の情報（{now.year}年{now.month}月）】\n{text}\n"
+                    url_map[name] = fetch_url
+                    url_content += f"\n【サイト名：{name}｜URL：{fetch_url}】\n{text}\n"
                 except Exception:
                     failed.append(name)
 
@@ -167,43 +168,40 @@ def page_outing():
 
             today = datetime.now().strftime("%Y年%m月%d日")
             result = call_gemini(f"""あなたは子育て家族のイベント情報アドバイザーです。
-以下の【登録サイトからの情報】を読み込み、{today}時点で開催予定の具体的なイベントを3つ抽出して提案してください。
+以下の【登録サイトからの情報】を読み込み、確認できるイベントをすべて抽出してリスト化してください。
 
 【重要なルール】
-- 「場所の紹介」ではなく、具体的な「開催イベント」のみを提案する
-- イベント名・開催日時・場所が明確なものだけを提案する
-- 登録サイトに掲載されていないイベントは提案しない
-- 登録サイトに情報が不十分な場合は「今月のイベント情報が見つかりませんでした」と正直に伝える
+- 「場所の紹介」ではなく、具体的な「開催イベント」のみを対象とする
+- イベント名・開催日時が読み取れるものだけを掲載する
+- 登録サイトに掲載されていないイベントは絶対に追加しない
+- 各イベントの📌情報元には必ずMarkdown形式のリンク [サイト名](URL) を記載する
+- イベントが見つからないサイトについては末尾に「情報なし」として記載する
+- 件数制限なし：見つかったイベントをすべて列挙する
 
-【家族構成】夫婦＋2歳の男の子（0〜3歳向けイベントが対象）
-
-【対象エリア】立川市・小金井市・府中市・三鷹市・八王子市
+【今日の日付】{today}
 
 【登録サイトからの情報】
 {url_content}
 
-以下の形式で、実際に開催されるイベントのみ提案してください：
+以下のMarkdown形式で出力してください：
 
-【今月のイベント情報🎪】
+## 📅 今月のイベント一覧
 
-① 【イベント名】
-📍 開催場所・市区：
-📅 開催日時：
-👶 対象年齢：
-💰 参加費：
-📝 内容：（2〜3文）
-📌 情報元：
+### ① イベント名
+- 📍 開催場所：
+- 📅 開催日時：
+- 👶 対象年齢：
+- 💰 参加費：
+- 📌 情報元：[サイト名](URL)
 
-② 【イベント名】
-（同上）
+### ② イベント名
+（同上、見つかったイベントをすべて列挙）
 
-③ 【イベント名】
-（同上）
-
-✨ 特におすすめ：""")
+---
+情報が取得できなかったサイト：（あれば記載）""")
             if failed:
                 st.caption(f"⚠️ 取得できなかったサイト: {', '.join(failed)}")
-            st.success(result)
+            st.markdown(result)
 
 # ============================================================
 # 育児・家事相談
