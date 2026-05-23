@@ -223,12 +223,20 @@ def page_outing():
   }}
 ]""")
                         events = []
+                        parse_error = ""
                         try:
                             m = re.search(r'\[[\s\S]*\]', raw)
                             if m:
                                 events = json.loads(m.group())
-                        except Exception:
-                            pass
+                            else:
+                                parse_error = "JSONの [ ] が見つかりませんでした"
+                        except Exception as parse_ex:
+                            parse_error = str(parse_ex)
+                        if parse_error or not events:
+                            with st.expander("🔍 デバッグ情報（開発者用）"):
+                                st.write(f"パースエラー: {parse_error}")
+                                st.write(f"イベント件数: {len(events)}")
+                                st.text_area("AIの生の返答", raw[:3000], height=200)
                         # date_display から全日程を抽出してall_datesを生成
                         for ev in events:
                             primary = ev.get('date', '')
