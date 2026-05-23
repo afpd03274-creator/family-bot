@@ -1,7 +1,7 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import anthropic
+import anthropic  # noqa: F401
 import requests
 import re
 from datetime import datetime
@@ -25,19 +25,21 @@ def get_sheet(name):
     return ss.worksheet(name)
 
 # ============================================================
-# Claude API
+# Gemini API
 # ============================================================
 def call_gemini(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={st.secrets['GEMINI_API_KEY']}"
     try:
-        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return message.content[0].text
+        res = requests.post(url, json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        }, timeout=30)
+        data = res.json()
+        if data.get("candidates"):
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        return f"APIエラー詳細: {data}"
     except Exception as e:
-        return f"エラーが発生しました: {e}"
+        return f"接続エラー: {e}"
 
 # ============================================================
 # 献立提案
