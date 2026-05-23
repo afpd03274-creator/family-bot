@@ -242,9 +242,13 @@ def page_outing():
 
         if events:
             if selected_day:
-                filtered = [e for e in events
-                            if e.get('date', '').endswith(f"-{selected_day:02d}")]
-                st.markdown(f"**{selected_day}日のイベント（{len(filtered)}件）**")
+                filtered = [e for e in events if e.get('date', '') == selected_day]
+                try:
+                    d = datetime.strptime(selected_day, '%Y-%m-%d')
+                    label = d.strftime(f"{d.month}月{d.day}日")
+                except Exception:
+                    label = selected_day
+                st.markdown(f"**{label}のイベント（{len(filtered)}件）**")
                 if st.button("← 全件表示に戻る"):
                     st.session_state.outing_day = None
                     st.rerun()
@@ -272,49 +276,60 @@ def page_outing():
         events = st.session_state.outing_events
         if events:
             now = datetime.now()
-            st.markdown(f"**📅 {now.year}年{now.month}月**")
 
-            day_counts = {}
+            # イベント日付ごとの件数 {"YYYY-MM-DD": count}
+            date_counts = {}
             for e in events:
-                try:
-                    d = datetime.strptime(e.get('date', ''), '%Y-%m-%d')
-                    if d.year == now.year and d.month == now.month:
-                        day_counts[d.day] = day_counts.get(d.day, 0) + 1
-                except Exception:
-                    pass
+                d_str = e.get('date', '')
+                if d_str:
+                    date_counts[d_str] = date_counts.get(d_str, 0) + 1
 
-            for label in ['月', '火', '水', '木', '金', '土', '日']:
-                pass
-            hcols = st.columns(7)
-            for i, label in enumerate(['月', '火', '水', '木', '金', '土', '日']):
-                hcols[i].markdown(
-                    f"<div style='text-align:center;font-weight:bold;font-size:12px'>{label}</div>",
+            selected_day = st.session_state.outing_day
+
+            # 今月から3ヶ月分表示
+            for offset in range(3):
+                month_total = now.month - 1 + offset
+                yr = now.year + month_total // 12
+                mo = month_total % 12 + 1
+
+                st.markdown(
+                    f"<div style='font-weight:bold;margin-top:10px;margin-bottom:2px'>"
+                    f"📅 {yr}年{mo}月</div>",
                     unsafe_allow_html=True
                 )
 
-            selected_day = st.session_state.outing_day
-            for week in cal_module.monthcalendar(now.year, now.month):
-                wcols = st.columns(7)
-                for i, day in enumerate(week):
-                    if day == 0:
-                        wcols[i].write("")
-                    elif day_counts.get(day, 0) > 0:
-                        count = day_counts[day]
-                        is_sel = selected_day == day
-                        label = f"{'✓' if is_sel else ''}{day}\n({count})"
-                        if wcols[i].button(
-                            label,
-                            key=f"cal_{day}",
-                            use_container_width=True,
-                            type="primary" if is_sel else "secondary"
-                        ):
-                            st.session_state.outing_day = None if is_sel else day
-                            st.rerun()
-                    else:
-                        wcols[i].markdown(
-                            f"<div style='text-align:center;color:#999;font-size:13px;padding:4px'>{day}</div>",
-                            unsafe_allow_html=True
-                        )
+                hcols = st.columns(7)
+                for i, lbl in enumerate(['月', '火', '水', '木', '金', '土', '日']):
+                    hcols[i].markdown(
+                        f"<div style='text-align:center;font-weight:bold;font-size:11px'>{lbl}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                for week in cal_module.monthcalendar(yr, mo):
+                    wcols = st.columns(7)
+                    for i, day in enumerate(week):
+                        if day == 0:
+                            wcols[i].write("")
+                        else:
+                            date_key = f"{yr}-{mo:02d}-{day:02d}"
+                            count = date_counts.get(date_key, 0)
+                            if count > 0:
+                                is_sel = selected_day == date_key
+                                btn_label = f"{'✓' if is_sel else ''}{day}({count})"
+                                if wcols[i].button(
+                                    btn_label,
+                                    key=f"cal_{date_key}",
+                                    use_container_width=True,
+                                    type="primary" if is_sel else "secondary"
+                                ):
+                                    st.session_state.outing_day = None if is_sel else date_key
+                                    st.rerun()
+                            else:
+                                wcols[i].markdown(
+                                    f"<div style='text-align:center;color:#999;"
+                                    f"font-size:12px;padding:3px'>{day}</div>",
+                                    unsafe_allow_html=True
+                                )
 
 # ============================================================
 # 育児・家事相談
