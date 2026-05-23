@@ -213,15 +213,22 @@ def page_outing():
 [
   {{
     "name": "イベント名",
-    "date": "YYYY-MM-DD",
-    "date_display": "〇月〇日（曜日）",
+    "dates": ["YYYY-MM-DD", "YYYY-MM-DD"],
+    "date_display": "〇月〇日（曜）・〇月〇日（曜）のように全日程を記載",
     "location": "開催場所・市区",
-    "age": "対象年齢",
-    "fee": "参加費",
+    "age": "対象年齢（不明なら「不明」）",
+    "fee": "参加費（不明なら「不明」）",
     "description": "内容（1〜2文）",
     "url": "情報元URL"
   }}
-]""")
+]
+
+【datesフィールドのルール】
+- 1日開催：["2026-06-07"]
+- 複数日開催（例：5/23・5/24）：["2026-05-23", "2026-05-24"]
+- 期間開催（例：6/1〜6/30）：["2026-06-01", "2026-06-02", ..., "2026-06-30"] のように全日分列挙
+- 年が不明なら{now.year}を使用
+""")
                         events = []
                         try:
                             m = re.search(r'\[[\s\S]*\]', raw)
@@ -229,7 +236,13 @@ def page_outing():
                                 events = json.loads(m.group())
                         except Exception:
                             pass
-                        events.sort(key=lambda e: e.get('date', ''))
+                        # datesがない場合はdateから補完
+                        for ev in events:
+                            if not ev.get('dates') and ev.get('date'):
+                                ev['dates'] = [ev['date']]
+                            elif not ev.get('dates'):
+                                ev['dates'] = []
+                        events.sort(key=lambda e: e.get('dates', [''])[0])
                         st.session_state.outing_events = events
                         if not events:
                             st.warning("イベント情報を抽出できませんでした。登録サイトに今月のイベント情報があるか確認してください。")
@@ -242,7 +255,7 @@ def page_outing():
 
         if events:
             if selected_day:
-                filtered = [e for e in events if e.get('date', '') == selected_day]
+                filtered = [e for e in events if selected_day in e.get('dates', [])]
                 try:
                     d = datetime.strptime(selected_day, '%Y-%m-%d')
                     label = d.strftime(f"{d.month}月{d.day}日")
@@ -277,12 +290,12 @@ def page_outing():
         if events:
             now = datetime.now()
 
-            # イベント日付ごとの件数 {"YYYY-MM-DD": count}
+            # イベント日付ごとの件数（複数日対応） {"YYYY-MM-DD": count}
             date_counts = {}
             for e in events:
-                d_str = e.get('date', '')
-                if d_str:
-                    date_counts[d_str] = date_counts.get(d_str, 0) + 1
+                for d_str in e.get('dates', []):
+                    if d_str:
+                        date_counts[d_str] = date_counts.get(d_str, 0) + 1
 
             selected_day = st.session_state.outing_day
 
