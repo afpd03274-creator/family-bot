@@ -24,18 +24,27 @@ def get_sheet(name):
     return ss.worksheet(name)
 
 # ============================================================
-# Gemini API
+# Groq API
 # ============================================================
 def call_gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={st.secrets['GEMINI_API_KEY']}"
     try:
-        res = requests.post(url, json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
-        }, timeout=30)
+        res = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {st.secrets['GROQ_API_KEY']}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024,
+                "temperature": 0.7
+            },
+            timeout=30
+        )
         data = res.json()
-        if data.get("candidates"):
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+        if data.get("choices"):
+            return data["choices"][0]["message"]["content"]
         return f"APIエラー詳細: {data}"
     except Exception as e:
         return f"接続エラー: {e}"
