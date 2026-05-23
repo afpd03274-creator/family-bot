@@ -229,6 +229,20 @@ def page_outing():
                                 events = json.loads(m.group())
                         except Exception:
                             pass
+                        # date_display から全日程を抽出してall_datesを生成
+                        for ev in events:
+                            primary = ev.get('date', '')
+                            display = ev.get('date_display', '')
+                            found = []
+                            for mo, dy in re.findall(r'(\d{1,2})月(\d{1,2})日', display):
+                                yr_guess = now.year if int(mo) >= now.month else now.year + 1
+                                found.append(f"{yr_guess}-{int(mo):02d}-{int(dy):02d}")
+                            if found:
+                                ev['all_dates'] = list(dict.fromkeys(found))
+                            elif primary:
+                                ev['all_dates'] = [primary]
+                            else:
+                                ev['all_dates'] = []
                         events.sort(key=lambda e: e.get('date', ''))
                         st.session_state.outing_events = events
                         if not events:
@@ -242,7 +256,7 @@ def page_outing():
 
         if events:
             if selected_day:
-                filtered = [e for e in events if e.get('date', '') == selected_day]
+                filtered = [e for e in events if selected_day in e.get('all_dates', [e.get('date', '')])]
                 try:
                     d = datetime.strptime(selected_day, '%Y-%m-%d')
                     label = d.strftime(f"{d.month}月{d.day}日")
@@ -277,12 +291,12 @@ def page_outing():
         if events:
             now = datetime.now()
 
-            # イベント日付ごとの件数 {"YYYY-MM-DD": count}
+            # イベント日付ごとの件数（複数日対応） {"YYYY-MM-DD": count}
             date_counts = {}
             for e in events:
-                d_str = e.get('date', '')
-                if d_str:
-                    date_counts[d_str] = date_counts.get(d_str, 0) + 1
+                for d_str in e.get('all_dates', [e.get('date', '')]):
+                    if d_str:
+                        date_counts[d_str] = date_counts.get(d_str, 0) + 1
 
             selected_day = st.session_state.outing_day
 
