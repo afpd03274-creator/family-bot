@@ -141,13 +141,20 @@ def page_outing():
 
             url_content = ""
             failed = []
+            now = datetime.now()
             for name, url in urls:
                 try:
-                    res = requests.get(url, timeout=10,
+                    # 年月パターン（/YYYY/MM/）を今月に自動置換
+                    fetch_url = re.sub(
+                        r'/\d{4}/\d{2}/',
+                        f'/{now.year}/{now.month:02d}/',
+                        url
+                    )
+                    res = requests.get(fetch_url, timeout=10,
                                        headers={"User-Agent": "Mozilla/5.0"})
                     text = re.sub(r'<[^>]+>', ' ', res.text)
-                    text = re.sub(r'\s+', ' ', text).strip()[:1500]
-                    url_content += f"\n【{name}の情報】\n{text}\n"
+                    text = re.sub(r'\s+', ' ', text).strip()[:2000]
+                    url_content += f"\n【{name}の情報（{now.year}年{now.month}月）】\n{text}\n"
                 except Exception:
                     failed.append(name)
 
