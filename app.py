@@ -36,9 +36,9 @@ def call_gemini(prompt):
         data = res.json()
         if data.get("candidates"):
             return data["candidates"][0]["content"]["parts"][0]["text"]
+        return f"APIエラー詳細: {data}"
     except Exception as e:
-        return f"エラーが発生しました: {e}"
-    return "申し訳ありません。もう一度お試しください。"
+        return f"接続エラー: {e}"
 
 # ============================================================
 # 献立提案
