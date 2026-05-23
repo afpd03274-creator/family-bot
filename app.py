@@ -37,9 +37,9 @@ def call_gemini(prompt):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": "llama-3.1-8b-instant",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 4096,
+                "max_tokens": 2048,
                 "temperature": 0.7
             },
             timeout=30
@@ -142,7 +142,7 @@ def _fetch_url_text(url, now, req_headers):
     html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
     html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
     text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'\s+', ' ', text).strip()[:4000]
+    text = re.sub(r'\s+', ' ', text).strip()[:2000]
     return text, fetch_url, fallback
 
 
