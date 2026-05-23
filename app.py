@@ -28,7 +28,7 @@ def get_sheet(name):
 # ============================================================
 # Groq API
 # ============================================================
-def call_gemini(prompt, max_tokens=1500):
+def call_gemini(prompt):
     try:
         res = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -39,7 +39,7 @@ def call_gemini(prompt, max_tokens=1500):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
+                "max_tokens": 4096,
                 "temperature": 0.7
             },
             timeout=30
@@ -52,88 +52,35 @@ def call_gemini(prompt, max_tokens=1500):
         return f"接続エラー: {e}"
 
 # ============================================================
-# 献立提案（7日分・豚ロース薄切り）
+# 献立提案
 # ============================================================
 def page_meal():
     st.header("🍚 献立提案")
-    st.caption("豚ロース薄切り使用・2人分・オーブン不使用・7日分")
+    st.caption("和食・時短・栄養バランス重視で提案します")
 
-    if 'meal_plan' not in st.session_state:
-        st.session_state.meal_plan = None
+    if st.button("今日の献立を提案する", use_container_width=True, type="primary"):
+        with st.spinner("献立を考えています..."):
+            result = call_gemini("""あなたは家庭料理の献立アドバイザーです。
+以下の条件で今日の夕食献立を提案してください。
 
-    btn_col, add_col = st.columns([3, 2])
-    with btn_col:
-        if st.button("7日分の献立を作成", use_container_width=True, type="primary"):
-            with st.spinner("献立を考えています...（30秒ほどかかります）"):
-                raw = call_gemini(
-                    f"7日分の豚ロース薄切りを使った夕食献立（2人分・オーブン不使用・和食中心・各30分以内）を"
-                    f"以下のJSON形式のみで返してください。前置きや説明は不要です。\n\n"
-                    f'{{"plan":['
-                    f'{{"day":"月","name":"料理名","time":"〇分","ingredients":["食材 分量"],"description":"1文説明","url":"https://cookpad.com/search/豚ロース薄切り+料理名キーワード"}},'
-                    f'{{"day":"火","name":"...","time":"...","ingredients":[...],"description":"...","url":"..."}},'
-                    f'{{"day":"水","name":"...","time":"...","ingredients":[...],"description":"...","url":"..."}},'
-                    f'{{"day":"木","name":"...","time":"...","ingredients":[...],"description":"...","url":"..."}},'
-                    f'{{"day":"金","name":"...","time":"...","ingredients":[...],"description":"...","url":"..."}},'
-                    f'{{"day":"土","name":"...","time":"...","ingredients":[...],"description":"...","url":"..."}},'
-                    f'{{"day":"日","name":"...","time":"...","ingredients":[...],"description":"...","url":"..."}}],'
-                    f'"shopping":[{{"item":"食材名","amount":"7日分の合計量","price":円}}],'
-                    f'"budget":合計円}}',
-                    max_tokens=2000
-                )
-                try:
-                    m = re.search(r'\{[\s\S]*\}', raw)
-                    if m:
-                        st.session_state.meal_plan = json.loads(m.group())
-                    else:
-                        st.error("献立の生成に失敗しました。もう一度お試しください。")
-                except Exception:
-                    st.error("献立データの解析に失敗しました。もう一度お試しください。")
+条件：
+- 和食中心
+- 調理時間30分以内の時短レシピ
+- 栄養バランスが良く健康的
+- レバーは使用しない
+- 家族構成：夫婦＋2歳の男の子
 
-    plan = st.session_state.meal_plan
+以下の形式で回答してください：
 
-    if plan:
-        with add_col:
-            if st.button("🛒 買い物リストに追加", use_container_width=True):
-                sheet = get_sheet("買い物リスト")
-                shopping = plan.get('shopping', [])
-                for item in shopping:
-                    name = f"{item.get('item', '')} {item.get('amount', '')}".strip()
-                    sheet.append_row([name, "", "FALSE", datetime.now().isoformat()])
-                st.success(f"{len(shopping)}品目を買い物リストに追加しました！")
-                st.rerun()
+【今日の献立提案】
+🍚 主食：
+🍖 主菜：（調理時間：〇分）
+🥗 副菜：
+🍵 汁物：
 
-        st.caption("⚠️ リンクはクックパッドの検索結果です。口コミ10件以上のレシピをご自身でお選びください。")
-
-        days = plan.get('plan', [])
-        for day in days:
-            with st.expander(
-                f"**{day.get('day', '')}曜日**　{day.get('name', '')}　⏱ {day.get('time', '')}",
-                expanded=False
-            ):
-                if day.get('description'):
-                    st.write(day['description'])
-                st.markdown("**材料（2人分）**")
-                for ing in day.get('ingredients', []):
-                    st.write(f"• {ing}")
-                if day.get('url'):
-                    st.markdown(f"🔗 [クックパッドで検索]({day['url']})")
-
-        st.divider()
-        st.subheader("🛒 1週間分の材料まとめ")
-        shopping = plan.get('shopping', [])
-        total = 0
-        for item in shopping:
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.write(f"• {item.get('item', '')}　{item.get('amount', '')}")
-            with c2:
-                p = item.get('price', 0)
-                if p:
-                    st.write(f"¥{p:,}")
-                    total += p
-        st.divider()
-        budget = plan.get('budget', total)
-        st.metric("1週間の想定予算", f"¥{budget:,}" if budget else "-")
+💡 時短ポイント：（1〜2文）
+🌿 栄養ポイント：（1〜2文）""")
+            st.success(result)
 
 # ============================================================
 # 買い物リスト
@@ -330,6 +277,7 @@ def page_outing():
         if events:
             now = datetime.now()
 
+            # イベント日付ごとの件数 {"YYYY-MM-DD": count}
             date_counts = {}
             for e in events:
                 d_str = e.get('date', '')
@@ -338,6 +286,7 @@ def page_outing():
 
             selected_day = st.session_state.outing_day
 
+            # 今月から3ヶ月分表示
             for offset in range(3):
                 month_total = now.month - 1 + offset
                 yr = now.year + month_total // 12
@@ -366,8 +315,9 @@ def page_outing():
                             count = date_counts.get(date_key, 0)
                             if count > 0:
                                 is_sel = selected_day == date_key
+                                btn_label = f"{'✓' if is_sel else ''}{day}({count})"
                                 if wcols[i].button(
-                                    f"{'✓' if is_sel else ''}{day}",
+                                    btn_label,
                                     key=f"cal_{date_key}",
                                     use_container_width=True,
                                     type="primary" if is_sel else "secondary"
