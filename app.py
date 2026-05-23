@@ -152,8 +152,11 @@ def page_outing():
                     )
                     res = requests.get(fetch_url, timeout=10,
                                        headers={"User-Agent": "Mozilla/5.0"})
-                    text = re.sub(r'<[^>]+>', ' ', res.text)
-                    text = re.sub(r'\s+', ' ', text).strip()[:2000]
+                    html = res.content.decode('utf-8', errors='replace')
+                    html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
+                    html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
+                    text = re.sub(r'<[^>]+>', ' ', html)
+                    text = re.sub(r'\s+', ' ', text).strip()[:4000]
                     url_content += f"\n【{name}の情報（{now.year}年{now.month}月）】\n{text}\n"
                 except Exception:
                     failed.append(name)
