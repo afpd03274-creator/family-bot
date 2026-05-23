@@ -135,7 +135,12 @@ def page_outing():
             urls = [(row[0], row[1]) for row in url_data[1:]
                     if len(row) >= 3 and row[0] and row[2] not in ("FALSE", False)]
 
+            if not urls:
+                st.warning("URLが登録されていません。「🌐 URL」タブからイベントサイトを登録してください。")
+                return
+
             url_content = ""
+            failed = []
             for name, url in urls:
                 try:
                     res = requests.get(url, timeout=10,
@@ -144,35 +149,42 @@ def page_outing():
                     text = re.sub(r'\s+', ' ', text).strip()[:1500]
                     url_content += f"\n【{name}の情報】\n{text}\n"
                 except Exception:
-                    pass
+                    failed.append(name)
+
+            if not url_content:
+                st.error("登録されたURLからの情報取得に失敗しました。URLが正しいか確認してください。")
+                return
 
             today = datetime.now().strftime("%Y年%m月%d日")
             result = call_gemini(f"""あなたは子育て家族のお出かけアドバイザーです。
-{today}時点で、以下の家族に適したお出かけ先を3つ提案してください。
+以下の【登録サイトからの情報】のみを参照して、{today}時点のお出かけ先を提案してください。
+登録サイトに載っていない場所は提案しないでください。
 
 家族構成：夫婦＋2歳の男の子
-対象エリア：東京都区外・埼玉県・神奈川県（相模原市・横浜市）
 条件：2歳児が楽しめる・体を動かせる・無料または低コスト優先
 
-{f'【登録サイトからの情報】{url_content}' if url_content else ''}
+【登録サイトからの情報】
+{url_content}
 
-以下の形式で提案してください：
+以下の形式で、登録サイトに掲載されているイベント・場所のみ提案してください：
 
 【今週のお出かけ候補🗺】
 
-① 【場所名】
+① 【場所名・イベント名】
 📍 エリア：
 🎯 2歳児おすすめ理由：
 💰 費用目安：
-⏰ 所要時間目安：
+⏰ 開催日時・所要時間：
 
-② 【場所名】
+② 【場所名・イベント名】
 （同上）
 
-③ 【場所名】
+③ 【場所名・イベント名】
 （同上）
 
 ✨ 今週のイチオシ：""")
+            if failed:
+                st.caption(f"⚠️ 取得できなかったサイト: {', '.join(failed)}")
             st.success(result)
 
 # ============================================================
