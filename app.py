@@ -37,7 +37,7 @@ def call_gemini(prompt):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "gemma2-9b-it",
+                "model": "llama-3.1-8b-instant",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1500,
                 "temperature": 0.7
@@ -142,7 +142,7 @@ def _fetch_url_text(url, now, req_headers):
     html = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=re.IGNORECASE)
     html = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=re.IGNORECASE)
     text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'\s+', ' ', text).strip()[:1500]
+    text = re.sub(r'\s+', ' ', text).strip()[:800]
     return text, fetch_url, fallback
 
 
@@ -194,34 +194,13 @@ def page_outing():
 
                     if url_content:
                         today_str = now.strftime("%Y年%m月%d日")
-                        raw = call_gemini(f"""あなたは子育て家族のイベント情報アドバイザーです。
-以下の【登録サイトからの情報】から確認できるイベントをすべて抽出し、JSON配列として返してください。
+                        raw = call_gemini(f"""Extract all events from the site data below. Return only a JSON array, no extra text.
+Today: {today_str}. Use {now.year} if year is unknown. Only real events with a date. No hallucination.
 
-【重要なルール】
-- 具体的な「開催イベント」のみ（場所紹介・施設案内は除外）
-- イベント名と開催日が明確なものだけを含める
-- 登録サイトに掲載されていないイベントは追加しない
-- 日付はYYYY-MM-DD形式（年が不明なら{now.year}を使用）
-- JSON配列のみを返す（前置き・説明文は不要）
-
-【今日の日付】{today_str}
-
-【登録サイトからの情報】
 {url_content}
 
-以下のJSON形式で返してください：
-[
-  {{
-    "name": "イベント名",
-    "date": "YYYY-MM-DD",
-    "date_display": "〇月〇日（曜日）",
-    "location": "開催場所・市区",
-    "age": "対象年齢",
-    "fee": "参加費",
-    "description": "内容（1〜2文）",
-    "url": "情報元URL"
-  }}
-]""")
+JSON format:
+[{{"name":"イベント名","date":"YYYY-MM-DD","date_display":"5月23日(土)など","location":"場所","age":"対象年齢","fee":"参加費","description":"説明","url":"情報元URL"}}]""")
                         events = []
                         parse_error = ""
                         try:
